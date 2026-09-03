@@ -84,6 +84,7 @@ long the cookie has left.
 | :--- | :--- | :--- |
 | `WALLA_DATA_DIR` | `./data` | Where the session and the last run are kept |
 | `WALLA_INTERVAL` | `24h` | Time between passes in `serve` |
+| `WALLA_RETRY_EVERY` | `15m` | How soon a failed pass is tried again |
 | `WALLA_PORT` | `8000` | Port for `/healthz` |
 | `WALLA_MIN_PAUSE` / `WALLA_MAX_PAUSE` | `20s` / `90s` | Random pause between listings |
 | `WALLA_MAX_PER_RUN` | `25` | Ceiling on listings touched in one pass |
@@ -103,7 +104,7 @@ rebuild.
 
 ## Health
 
-`/healthz` answers 200 while the service is fine and 503 when it needs a human:
+`/healthz` answers **200 whenever the process is alive**, and the body carries the state:
 
 ```json
 {
@@ -115,9 +116,13 @@ rebuild.
 }
 ```
 
-`status` is `down` when there is no session, when the cookie has expired, or when Wallapop
-rejected the last pass; `warn` when the session ends within `WALLA_WARN_BEFORE` or the last
-pass failed for a reason a retry may fix; `ok` otherwise.
+`status` is `down` when there is no session or the cookie has expired, `warn` when it ends
+within `WALLA_WARN_BEFORE` or the last pass failed, and `ok` otherwise.
+
+It never answers 503 for a session problem, and that is deliberate: a blackbox probe reads
+any other code as "the service stopped answering", which would raise the wrong alert with
+the wrong words for a service that is answering perfectly well and only needs a new cookie.
+Liveness is the probe's question; the session is the metric's.
 
 ## Alerting
 
@@ -133,5 +138,7 @@ one place and in one format:
 | `wallapop_expired_listings` | Listings found expired in the last pass |
 | `wallapop_reactivated_listings` | Listings reactivated in the last pass |
 
-A dry run reports nothing, so trying things out does not move the graphs. `/healthz`
-answering 503 is covered by the blackbox probe already.
+A dry run reports nothing, so trying things out does not move the graphs.
+
+A failed pass is retried every `WALLA_RETRY_EVERY` instead of waiting for the next daily
+tick, so a session imported by hand takes effect in minutes and the alert clears itself.

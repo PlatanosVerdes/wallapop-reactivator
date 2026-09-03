@@ -33,12 +33,13 @@ type payload struct {
 func (h *Health) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// Always 200 while the process is alive. A session that needs a human is not a
+		// service that stopped answering, and the blackbox probe reads any other code as
+		// exactly that: the alert for the session comes from wallapop_last_run_status.
 		body := payload{Status: "ok", Version: h.Version, Session: "ok"}
-		code := http.StatusOK
 		down := func(why string) {
 			body.Session = why
 			body.Status = "down"
-			code = http.StatusServiceUnavailable
 		}
 
 		sess, err := h.Store.Load()
@@ -77,7 +78,6 @@ func (h *Health) Handler() http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(code)
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(body)

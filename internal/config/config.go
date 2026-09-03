@@ -20,7 +20,9 @@ type Config struct {
 	AppVersion string
 
 	Interval time.Duration
-	Port     int
+	// RetryEvery is how soon a failed pass is tried again.
+	RetryEvery time.Duration
+	Port       int
 
 	MinPause  time.Duration
 	MaxPause  time.Duration

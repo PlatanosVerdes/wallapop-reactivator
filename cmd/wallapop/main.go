@@ -154,16 +154,22 @@ func cmdServe(cfg config.Config, store *session.Store, log *slog.Logger, args []
 	}()
 
 	for {
-		onePass(ctx, cfg, store, log, false)
+		res := onePass(ctx, cfg, store, log, false)
 
-		next = time.Now().Add(*interval)
-		log.Info("next pass", "at", next.Format(time.RFC3339))
+		// A pass that failed is retried on a short clock: a session imported by hand
+		// should take effect in minutes, not on tomorrow's tick.
+		wait := *interval
+		if !res.OK() {
+			wait = cfg.RetryEvery
+		}
+		next = time.Now().Add(wait)
+		log.Info("next pass", "at", next.Format(time.RFC3339), "after_failure", !res.OK())
 		select {
 		case <-ctx.Done():
 			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			return srv.Shutdown(shutdown)
-		case <-time.After(*interval):
+		case <-time.After(wait):
 		}
 	}
 }
