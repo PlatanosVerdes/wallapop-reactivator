@@ -26,30 +26,30 @@ type Config struct {
 	MaxPause  time.Duration
 	MaxPerRun int
 
-	TelegramToken string
-	TelegramChat  string
-	WarnBefore    time.Duration
+	// Pushgateway is empty when there is nothing to report to, which is the case
+	// outside the Pi.
+	Pushgateway string
+	WarnBefore  time.Duration
 
 	LogJSON bool
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		DataDir:       env("WALLA_DATA_DIR", "./data"),
-		BaseURL:       env("WALLA_BASE_URL", wallapop.DefaultBaseURL),
-		WebURL:        env("WALLA_WEB_URL", wallapop.DefaultWebURL),
-		Scheme:        wallapop.SignScheme(env("WALLA_SIGN_SCHEME", string(wallapop.SchemeNone))),
-		DeviceID:      env("WALLA_DEVICE_ID", ""),
-		AppVersion:    env("WALLA_APP_VERSION", wallapop.DefaultAppVersion),
-		Interval:      duration("WALLA_INTERVAL", 24*time.Hour),
-		Port:          number("WALLA_PORT", 8000),
-		MinPause:      duration("WALLA_MIN_PAUSE", 20*time.Second),
-		MaxPause:      duration("WALLA_MAX_PAUSE", 90*time.Second),
-		MaxPerRun:     number("WALLA_MAX_PER_RUN", 25),
-		TelegramToken: env("WALLA_TELEGRAM_TOKEN", ""),
-		TelegramChat:  env("WALLA_TELEGRAM_CHAT", ""),
-		WarnBefore:    duration("WALLA_WARN_BEFORE", 72*time.Hour),
-		LogJSON:       env("WALLA_LOG_JSON", "") == "1",
+		DataDir:     env("WALLA_DATA_DIR", "./data"),
+		BaseURL:     env("WALLA_BASE_URL", wallapop.DefaultBaseURL),
+		WebURL:      env("WALLA_WEB_URL", wallapop.DefaultWebURL),
+		Scheme:      wallapop.SignScheme(env("WALLA_SIGN_SCHEME", string(wallapop.SchemeNone))),
+		DeviceID:    env("WALLA_DEVICE_ID", ""),
+		AppVersion:  env("WALLA_APP_VERSION", wallapop.DefaultAppVersion),
+		Interval:    duration("WALLA_INTERVAL", 24*time.Hour),
+		Port:        number("WALLA_PORT", 8000),
+		MinPause:    duration("WALLA_MIN_PAUSE", 20*time.Second),
+		MaxPause:    duration("WALLA_MAX_PAUSE", 90*time.Second),
+		MaxPerRun:   number("WALLA_MAX_PER_RUN", 25),
+		Pushgateway: env("WALLA_PUSHGATEWAY", ""),
+		WarnBefore:  duration("WALLA_WARN_BEFORE", 72*time.Hour),
+		LogJSON:     env("WALLA_LOG_JSON", "") == "1",
 	}
 
 	if cfg.MaxPause < cfg.MinPause {

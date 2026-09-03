@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/PlatanosVerdes/wallapop-reactivator/internal/config"
-	"github.com/PlatanosVerdes/wallapop-reactivator/internal/notify"
+	"github.com/PlatanosVerdes/wallapop-reactivator/internal/metrics"
 	"github.com/PlatanosVerdes/wallapop-reactivator/internal/reactivate"
 	"github.com/PlatanosVerdes/wallapop-reactivator/internal/server"
 	"github.com/PlatanosVerdes/wallapop-reactivator/internal/session"
@@ -168,23 +168,25 @@ func cmdServe(cfg config.Config, store *session.Store, log *slog.Logger, args []
 	}
 }
 
-// onePass renews the session, does the round, and speaks up only when something is wrong.
+// onePass renews the session, does the round, and reports state. It never sends a message
+// of its own: the alert rules decide what is worth waking somebody for.
 func onePass(ctx context.Context, cfg config.Config, store *session.Store, log *slog.Logger, dryRun bool) reactivate.Result {
-	tg := notify.NewTelegram(cfg.TelegramToken, cfg.TelegramChat)
-	fail := func(err error) reactivate.Result {
-		log.Error("no usable session", "err", err)
-		res := reactivate.Result{StartedAt: time.Now(), Error: err.Error(), NeedsHuman: true}
+	report := func(res reactivate.Result) reactivate.Result {
 		if err := reactivate.SaveResult(cfg.DataDir, res); err != nil {
 			log.Error("could not save the run", "err", err)
 		}
-		if err := tg.Send(ctx, "wallapop: la sesion no sirve, hay que reimportarla: "+res.Error); err != nil {
-			log.Error("could not notify", "err", err)
+		if dryRun {
+			return res
+		}
+		if err := push(ctx, cfg, store, res); err != nil {
+			log.Error("could not push metrics", "err", err)
 		}
 		return res
 	}
 
 	if _, err := store.Load(); err != nil {
-		return fail(err)
+		log.Error("no usable session", "err", err)
+		return report(reactivate.Result{StartedAt: time.Now(), Error: err.Error(), NeedsHuman: true})
 	}
 	client := newClient(cfg, store)
 
@@ -193,39 +195,51 @@ func onePass(ctx context.Context, cfg config.Config, store *session.Store, log *
 	// rejected mid-pass.
 	if store.AccessSpent() {
 		if err := client.RenewSession(ctx); err != nil {
-			return fail(err)
+			log.Error("the session could not be renewed", "err", err)
+			return report(reactivate.Result{StartedAt: time.Now(), Error: err.Error(), NeedsHuman: true})
 		}
 		log.Info("session renewed")
 	}
 
-	opt := reactivate.Options{
+	return report(reactivate.Run(ctx, client, reactivate.Options{
 		DryRun:    dryRun,
 		MinPause:  cfg.MinPause,
 		MaxPause:  cfg.MaxPause,
 		MaxPerRun: cfg.MaxPerRun,
-	}
-	res := reactivate.Run(ctx, client, opt, log)
-	if err := reactivate.SaveResult(cfg.DataDir, res); err != nil {
-		log.Error("could not save the run", "err", err)
+	}, log))
+}
+
+// push reports the pass as gauges. Status follows the convention the other rules use:
+// 0 is fine, 1 is a failure a retry may fix, 2 needs a human.
+func push(ctx context.Context, cfg config.Config, store *session.Store, res reactivate.Result) error {
+	status := 0.0
+	switch {
+	case res.NeedsHuman:
+		status = 2
+	case !res.OK():
+		status = 1
 	}
 
-	if !res.OK() {
-		if err := tg.Send(ctx, res.Summary()); err != nil {
-			log.Error("could not notify", "err", err)
-		}
-		return res
+	gauges := []metrics.Gauge{
+		{Name: "wallapop_last_run_status", Help: "0 fine, 1 failed, 2 needs a human", Value: status},
+		{Name: "wallapop_last_run_timestamp", Help: "Unix time of the last pass", Value: float64(time.Now().Unix())},
+		{Name: "wallapop_expired_listings", Help: "Listings found expired in the last pass", Value: float64(res.Expired)},
+		{Name: "wallapop_reactivated_listings", Help: "Listings reactivated in the last pass", Value: float64(len(res.Reactivated))},
 	}
-
-	// The refresh token running out is the one thing the service cannot fix by itself.
+	// Days of unattended runway left, and -1 when it is not known yet.
+	days := -1.0
 	if sess := store.Current(); sess != nil {
-		if left, ok := sess.Renewable(); ok && left > 0 && left <= cfg.WarnBefore {
-			msg := fmt.Sprintf("wallapop: la sesion deja de renovarse en %s, hay que reimportarla", left.Round(time.Hour))
-			if err := tg.Send(ctx, msg); err != nil {
-				log.Error("could not notify", "err", err)
-			}
+		if left, ok := sess.Renewable(); ok {
+			days = left.Hours() / 24
 		}
 	}
-	return res
+	gauges = append(gauges, metrics.Gauge{
+		Name:  "wallapop_session_days_remaining",
+		Help:  "Days before the session has to be imported again by hand",
+		Value: days,
+	})
+
+	return metrics.New(cfg.Pushgateway, "wallapop-reactivator").Push(ctx, gauges)
 }
 
 func cmdSession(cfg config.Config, store *session.Store, args []string) error {

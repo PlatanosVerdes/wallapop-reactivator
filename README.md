@@ -88,7 +88,7 @@ long the cookie has left.
 | `WALLA_MIN_PAUSE` / `WALLA_MAX_PAUSE` | `20s` / `90s` | Random pause between listings |
 | `WALLA_MAX_PER_RUN` | `25` | Ceiling on listings touched in one pass |
 | `WALLA_WARN_BEFORE` | `72h` | How early the end of the session is announced |
-| `WALLA_TELEGRAM_TOKEN` / `WALLA_TELEGRAM_CHAT` | – | Where failures are reported |
+| `WALLA_PUSHGATEWAY` | – | Pushgateway base URL. Empty means report nothing, which is right off the Pi |
 | `WALLA_DEVICE_ID` | from the `device_id` claim | Sent as `x-deviceid` |
 | `WALLA_APP_VERSION` | `826680` | Sent as `x-appversion` |
 | `WALLA_PATH_ITEMS` | `/api/v3/user/items` | Catalogue endpoint |
@@ -115,6 +115,23 @@ rebuild.
 }
 ```
 
-`status` is `down` when there is no session, when it can no longer renew itself, or when
-Wallapop rejected the last pass; `warn` when the session ends within `WALLA_WARN_BEFORE`
-or the last pass failed for a reason a retry may fix; `ok` otherwise.
+`status` is `down` when there is no session, when the cookie has expired, or when Wallapop
+rejected the last pass; `warn` when the session ends within `WALLA_WARN_BEFORE` or the last
+pass failed for a reason a retry may fix; `ok` otherwise.
+
+## Alerting
+
+The service sends no messages of its own. It pushes gauges to the Pushgateway after every
+pass and the alert rules decide what deserves attention, which is what keeps every alert in
+one place and in one format:
+
+| Metric | What it says |
+| :--- | :--- |
+| `wallapop_last_run_status` | 0 fine, 1 failed and a retry may fix it, 2 needs a human |
+| `wallapop_last_run_timestamp` | Unix time of the last pass, so a service that stopped running is visible |
+| `wallapop_session_days_remaining` | Days of unattended runway left, -1 when not known yet |
+| `wallapop_expired_listings` | Listings found expired in the last pass |
+| `wallapop_reactivated_listings` | Listings reactivated in the last pass |
+
+A dry run reports nothing, so trying things out does not move the graphs. `/healthz`
+answering 503 is covered by the blackbox probe already.
