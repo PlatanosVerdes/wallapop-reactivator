@@ -45,6 +45,7 @@ func Load() (Config, error) {
 		DeviceID:    env("WALLA_DEVICE_ID", ""),
 		AppVersion:  env("WALLA_APP_VERSION", wallapop.DefaultAppVersion),
 		Interval:    duration("WALLA_INTERVAL", 24*time.Hour),
+		RetryEvery:  duration("WALLA_RETRY_EVERY", 15*time.Minute),
 		Port:        number("WALLA_PORT", 8000),
 		MinPause:    duration("WALLA_MIN_PAUSE", 20*time.Second),
 		MaxPause:    duration("WALLA_MAX_PAUSE", 90*time.Second),
@@ -54,6 +55,14 @@ func Load() (Config, error) {
 		LogJSON:     env("WALLA_LOG_JSON", "") == "1",
 	}
 
+	// A wait of zero would turn the ticker into a spin loop, which is exactly what an
+	// unset field did on 2026-09-03: 7887 passes in a minute.
+	if cfg.RetryEvery < time.Minute {
+		return cfg, fmt.Errorf("WALLA_RETRY_EVERY (%s) is under a minute, which would spin", cfg.RetryEvery)
+	}
+	if cfg.Interval < time.Minute {
+		return cfg, fmt.Errorf("WALLA_INTERVAL (%s) is under a minute, which would spin", cfg.Interval)
+	}
 	if cfg.MaxPause < cfg.MinPause {
 		return cfg, fmt.Errorf("WALLA_MAX_PAUSE (%s) is below WALLA_MIN_PAUSE (%s)", cfg.MaxPause, cfg.MinPause)
 	}

@@ -83,8 +83,8 @@ long the cookie has left.
 | Variable | Default | What it does |
 | :--- | :--- | :--- |
 | `WALLA_DATA_DIR` | `./data` | Where the session and the last run are kept |
-| `WALLA_INTERVAL` | `24h` | Time between passes in `serve` |
-| `WALLA_RETRY_EVERY` | `15m` | How soon a failed pass is tried again |
+| `WALLA_INTERVAL` | `24h` | Time between passes in `serve`. Under a minute is refused |
+| `WALLA_RETRY_EVERY` | `15m` | How soon a failed pass is tried again. Under a minute is refused |
 | `WALLA_PORT` | `8000` | Port for `/healthz` |
 | `WALLA_MIN_PAUSE` / `WALLA_MAX_PAUSE` | `20s` / `90s` | Random pause between listings |
 | `WALLA_MAX_PER_RUN` | `25` | Ceiling on listings touched in one pass |
