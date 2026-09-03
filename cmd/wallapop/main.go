@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -132,13 +133,15 @@ func cmdServe(cfg config.Config, store *session.Store, log *slog.Logger, args []
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	next := time.Now()
+	// Written by the loop below and read by the health handler, so it crosses goroutines.
+	var next atomic.Int64
+	next.Store(time.Now().Unix())
 	health := &server.Health{
 		Version:    buildVersion,
 		DataDir:    cfg.DataDir,
 		Store:      store,
 		WarnBefore: cfg.WarnBefore,
-		NextRun:    func() time.Time { return next },
+		NextRun:    func() time.Time { return time.Unix(next.Load(), 0) },
 	}
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(*port),
@@ -162,8 +165,9 @@ func cmdServe(cfg config.Config, store *session.Store, log *slog.Logger, args []
 		if !res.OK() {
 			wait = cfg.RetryEvery
 		}
-		next = time.Now().Add(wait)
-		log.Info("next pass", "at", next.Format(time.RFC3339), "after_failure", !res.OK())
+		at := time.Now().Add(wait)
+		next.Store(at.Unix())
+		log.Info("next pass", "at", at.Format(time.RFC3339), "after_failure", !res.OK())
 		select {
 		case <-ctx.Done():
 			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -65,8 +65,12 @@ func (h *Health) Handler() http.Handler {
 		if res, ok := reactivate.LoadResult(h.DataDir); ok {
 			body.LastRun = &res
 			switch {
+			case res.NeedsHuman && body.Status == "ok":
+				// Only when the session itself looks fine: otherwise its own reason is
+				// the specific one and this would bury it.
+				down("the last pass needs a human: " + res.Error)
 			case res.NeedsHuman:
-				down("the last pass was rejected by Wallapop")
+				body.Status = "down"
 			case res.Error != "" && body.Status == "ok":
 				body.Status = "warn"
 			}

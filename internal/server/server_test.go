@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,43 @@ func TestHealthWarnsOnAnExpiringSession(t *testing.T) {
 	_, body := get(t, &Health{DataDir: dir, Store: store, WarnBefore: 72 * time.Hour})
 	if body["status"] != "warn" {
 		t.Errorf("status is %q, expected warn", body["status"])
+	}
+}
+
+// The session's own reason is the specific one: a generic "needs a human" must not bury it.
+func TestHealthKeepsTheSpecificReason(t *testing.T) {
+	dir := t.TempDir()
+	if err := reactivate.SaveResult(dir, reactivate.Result{Error: "boom", NeedsHuman: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := get(t, &Health{DataDir: dir, Store: session.NewStore(dir)})
+	if body["status"] != "down" {
+		t.Errorf("status is %q, expected down", body["status"])
+	}
+	if got, _ := body["session"].(string); !strings.Contains(got, "no session imported") {
+		t.Errorf("session reads %q, expected the session's own reason", got)
+	}
+}
+
+func TestHealthReportsAPassThatNeedsAHuman(t *testing.T) {
+	dir := t.TempDir()
+	store := session.NewStore(dir)
+	sess := session.New("a.b.c.d.e")
+	sess.Expires = time.Now().Add(20 * 24 * time.Hour)
+	if err := store.Save(sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := reactivate.SaveResult(dir, reactivate.Result{Error: "rejected", NeedsHuman: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := get(t, &Health{DataDir: dir, Store: store, WarnBefore: 72 * time.Hour})
+	if body["status"] != "down" {
+		t.Errorf("status is %q, expected down", body["status"])
+	}
+	if got, _ := body["session"].(string); !strings.Contains(got, "rejected") {
+		t.Errorf("session reads %q, expected the pass error", got)
 	}
 }
 
